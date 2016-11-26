@@ -4,6 +4,7 @@
 void init_json_tree(int socketfd);
 void free_json_tree();
 char *get_focused_output();
+int get_output_index(const char *focused_name);
 char *create_payload(const char *output, struct wlc_geometry *g);
 struct wlc_geometry *get_container_geometry(json_object *container);
 json_object *get_focused_container();

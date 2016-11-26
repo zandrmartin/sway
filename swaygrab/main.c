@@ -12,6 +12,7 @@
 #include "ipc-client.h"
 #include "util.h"
 #include "swaygrab/json.h"
+#include "swaygrab/interactive.h"
 
 void sway_terminate(int exit_code) {
 	exit(exit_code);
@@ -145,6 +146,7 @@ int main(int argc, char **argv) {
 	char *output = NULL;
 	int framerate = 30;
 	bool grab_focused = false;
+	bool interactive = false;
 
 	init_log(L_INFO);
 
@@ -157,6 +159,7 @@ int main(int argc, char **argv) {
 		{"raw", no_argument, NULL, 'r'},
 		{"rate", required_argument, NULL, 'R'},
 		{"focused", no_argument, NULL, 'f'},
+		{"interactive", no_argument, NULL, 'i'},
 		{0, 0, 0, 0}
 	};
 
@@ -170,7 +173,8 @@ int main(int argc, char **argv) {
 		"  -s, --socket <socket>  Use the specified socket.\n"
 		"  -R, --rate <rate>      Specify framerate (default: 30)\n"
 		"  -r, --raw              Write raw rgba data to stdout.\n"
-		"  -f, --focused          Grab the focused container.\n";
+		"  -f, --focused          Grab the focused container.\n"
+		"  -i, --interactive      Select area to grab interactively using mouse.\n";
 
 	int c;
 	while (1) {
@@ -180,6 +184,9 @@ int main(int argc, char **argv) {
 			break;
 		}
 		switch (c) {
+		case 'i':
+			interactive = true;
+			break;
 		case 'f':
 			grab_focused = true;
 			break;
@@ -235,7 +242,18 @@ int main(int argc, char **argv) {
 
 	struct wlc_geometry *geo;
 
-	if (grab_focused) {
+	if (interactive) {
+		if (!output) {
+			output = get_focused_output();
+		}
+
+		int output_index = get_output_index(output);
+		if (output_index < 0) {
+			sway_abort("Unable to find index for specified output (%s).", output);
+		}
+
+		geo = get_geo_interactively(output_index);
+	} else if (grab_focused) {
 		output = get_focused_output();
 		json_object *con = get_focused_container();
 		json_object *name;

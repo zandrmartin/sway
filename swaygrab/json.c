@@ -74,6 +74,22 @@ char *get_focused_output() {
 	return NULL;
 }
 
+int get_output_index(const char *focused_name) {
+	json_object *outputs, *output, *name;
+	json_object_object_get_ex(tree, "nodes", &outputs);
+
+	for (int i = 0; i < json_object_array_length(outputs); i++) {
+		output = json_object_array_get_idx(outputs, i);
+		json_object_object_get_ex(output, "name", &name);
+
+		if (strcmp(focused_name, json_object_get_string(name)) == 0) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 char *create_payload(const char *output, struct wlc_geometry *g) {
 	char *payload_str = malloc(256);
 	json_object *payload = json_object_new_object();
