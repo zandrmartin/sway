@@ -348,7 +348,7 @@ int main(int argc, char **argv) {
 		"  -v, --version                  Show the version number and quit.\n"
 		"  -i, --image [<output>:]<path>  Display the given image.\n"
 		"  -u, --no-unlock-indicator      Disable the unlock indicator.\n"
-		"  -f, --daemonize                Detach from the controlling terminal.\n" 
+		"  -f, --daemonize                Detach from the controlling terminal.\n"
 		"  --socket <socket>              Use the specified socket.\n";
 
 
@@ -525,6 +525,7 @@ int main(int argc, char **argv) {
 	}
 
 	render(&render_data);
+
 	bool locked = false;
 	while (wl_display_dispatch(registry->display) != -1) {
 		if (!locked) {

@@ -127,7 +127,7 @@ static void set_lock_surface(struct wl_client *client, struct wl_resource *resou
 		wlc_view_set_state(view->handle, WLC_BIT_FULLSCREEN, true);
 		wlc_view_bring_to_front(view->handle);
 		wlc_view_focus(view->handle);
-		desktop_shell.is_locked = true;
+		// desktop_shell.is_locked = true;
 		input_init();
 		arrange_windows(workspace, -1, -1);
 		swayc_t *focus_output = swayc_active_output();

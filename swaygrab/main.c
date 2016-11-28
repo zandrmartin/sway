@@ -179,7 +179,7 @@ int main(int argc, char **argv) {
 	int c;
 	while (1) {
 		int option_index = 0;
-		c = getopt_long(argc, argv, "hco:vs:R:rf", long_options, &option_index);
+		c = getopt_long(argc, argv, "hco:vs:R:rfi", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -247,12 +247,11 @@ int main(int argc, char **argv) {
 			output = get_focused_output();
 		}
 
-		int output_index = get_output_index(output);
-		if (output_index < 0) {
-			sway_abort("Unable to find index for specified output (%s).", output);
-		}
+		geo = get_geo_interactively(output);
 
-		geo = get_geo_interactively(output_index);
+		if (geo == NULL) {
+			sway_abort("Failed to get geometry interactively.");
+		}
 	} else if (grab_focused) {
 		output = get_focused_output();
 		json_object *con = get_focused_container();

@@ -34,6 +34,7 @@ static void pointer_handle_motion(void *data, struct wl_pointer *pointer,
 
 	window->pointer_input.last_x = wl_fixed_to_int(sx_w);
 	window->pointer_input.last_y = wl_fixed_to_int(sy_w);
+	window_render(window);
 }
 
 static void pointer_handle_button(void *data, struct wl_pointer *pointer, uint32_t serial,
