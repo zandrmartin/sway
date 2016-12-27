@@ -21,6 +21,7 @@ and published [on GitHub](https://github.com/SirCmpwn/sway/releases).
 - [IPC feature support](https://github.com/SirCmpwn/sway/issues/98)
 - [i3bar feature support](https://github.com/SirCmpwn/sway/issues/343)
 - [i3-gaps feature support](https://github.com/SirCmpwn/sway/issues/307)
+- [security features](https://github.com/SirCmpwn/sway/issues/984)
 
 ## Installation
 
@@ -44,6 +45,7 @@ Install dependencies:
 * [wlc](https://github.com/Cloudef/wlc)
 * wayland
 * xwayland
+* libcap
 * asciidoc
 * pcre
 * json-c
@@ -65,6 +67,7 @@ Run these commands:
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_SYSCONFDIR=/etc ..
     make
     sudo make install
+    sudo setcap cap_sys_ptrace=eip /usr/local/bin/sway
 
 On systems without logind, you need to suid the sway binary:
 

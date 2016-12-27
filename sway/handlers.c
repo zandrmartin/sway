@@ -21,6 +21,7 @@
 #include "sway/criteria.h"
 #include "sway/ipc-server.h"
 #include "sway/input.h"
+#include "sway/security.h"
 #include "list.h"
 #include "stringop.h"
 #include "log.h"
@@ -122,6 +123,11 @@ static void update_background_geometries(wlc_handle output) {
 
 static bool handle_input_created(struct libinput_device *device) {
 	const char *identifier = libinput_dev_unique_id(device);
+	if (!identifier) {
+		sway_log(L_ERROR, "Unable to allocate unique name for input device %p",
+				device);
+		return true;
+	}
 	sway_log(L_INFO, "Found input device (%s)", identifier);
 
 	list_add(input_devices, device);
@@ -385,7 +391,7 @@ static bool handle_view_created(wlc_handle handle) {
 			struct criteria *crit = criteria->items[i];
 			sway_log(L_DEBUG, "for_window '%s' matches new view %p, cmd: '%s'",
 					crit->crit_raw, newview, crit->cmdlist);
-			struct cmd_results *res = handle_command(crit->cmdlist);
+			struct cmd_results *res = handle_command(crit->cmdlist, CONTEXT_CRITERIA);
 			if (res->status != CMD_SUCCESS) {
 				sway_log(L_ERROR, "Command '%s' failed: %s", res->input, res->error);
 			}
@@ -398,20 +404,13 @@ static bool handle_view_created(wlc_handle handle) {
 		if (workspace && workspace->fullscreen) {
 			set_focused_container(workspace->fullscreen);
 		}
-
-		// if parent container is a workspace, newview its only child and
-		// layout is tabbed/stacked, add a container around newview
-		swayc_t *parent_container = newview->parent;
-		if (parent_container && parent_container->type == C_WORKSPACE &&
-			parent_container->children && parent_container->children->length == 1 &&
-			(parent_container->layout == L_TABBED || parent_container->layout == L_STACKED)) {
-			swayc_t *container = new_container(newview, parent_container->layout);
-			set_focused_container(newview);
-			arrange_windows(container, -1, -1);
-		}
 	} else {
 		swayc_t *output = swayc_parent_by_type(focused, C_OUTPUT);
 		wlc_handle *h = malloc(sizeof(wlc_handle));
+		if (!h) {
+			sway_log(L_ERROR, "Unable to allocate window handle, view handler bailing out");
+			return true;
+		}
 		*h = handle;
 		sway_log(L_DEBUG, "Adding unmanaged window %p to %p", h, output->unmanaged);
 		list_add(output->unmanaged, h);
@@ -516,8 +515,13 @@ static void handle_view_geometry_request(wlc_handle handle, const struct wlc_geo
 
 static void handle_view_state_request(wlc_handle view, enum wlc_view_state_bit state, bool toggle) {
 	swayc_t *c = swayc_by_handle(view);
+	pid_t pid = wlc_view_get_pid(view);
 	switch (state) {
 	case WLC_BIT_FULLSCREEN:
+		if (!(get_feature_policy(pid) & FEATURE_FULLSCREEN)) {
+			sway_log(L_INFO, "Denying fullscreen to %d (%s)", pid, c->name);
+			break;
+		}
 		// i3 just lets it become fullscreen
 		wlc_view_set_state(view, state, toggle);
 		if (c) {
@@ -576,10 +580,14 @@ static void handle_binding_command(struct sway_binding *binding) {
 	// binding since it will be gone after the reload has completed.
 	if (strcasecmp(binding->command, "reload") == 0) {
 		binding_copy = sway_binding_dup(binding);
+		if (!binding_copy) {
+			sway_log(L_ERROR, "Unable to duplicate binding during reload");
+			return;
+		}
 		reload = true;
 	}
 
-	struct cmd_results *res = handle_command(binding->command);
+	struct cmd_results *res = handle_command(binding->command, CONTEXT_BINDING);
 	if (res->status != CMD_SUCCESS) {
 		sway_log(L_ERROR, "Command '%s' failed: %s", res->input, res->error);
 	}
@@ -719,6 +727,14 @@ static bool handle_key(wlc_handle view, uint32_t time, const struct wlc_modifier
 	}
 
 	list_free(candidates);
+
+	swayc_t *focused = get_focused_container(&root_container);
+	if (focused->type == C_VIEW) {
+		pid_t pid = wlc_view_get_pid(focused->handle);
+		if (!(get_feature_policy(pid) & FEATURE_KEYBOARD)) {
+			return EVENT_HANDLED;
+		}
+	}
 	return EVENT_PASSTHROUGH;
 }
 
@@ -775,6 +791,15 @@ static bool handle_pointer_motion(wlc_handle handle, uint32_t time, const struct
 	}
 
 	pointer_position_set(&new_origin, false);
+
+	swayc_t *focused = get_focused_container(&root_container);
+	if (focused->type == C_VIEW) {
+		pid_t pid = wlc_view_get_pid(focused->handle);
+		if (!(get_feature_policy(pid) & FEATURE_MOUSE)) {
+			return EVENT_HANDLED;
+		}
+	}
+
 	return EVENT_PASSTHROUGH;
 }
 
@@ -842,6 +867,12 @@ static bool handle_pointer_button(wlc_handle view, uint32_t time, const struct w
 
 	// don't change focus or mode if fullscreen
 	if (swayc_is_fullscreen(focused)) {
+		if (focused->type == C_VIEW) {
+			pid_t pid = wlc_view_get_pid(focused->handle);
+			if (!(get_feature_policy(pid) & FEATURE_MOUSE)) {
+				return EVENT_HANDLED;
+			}
+		}
 		return EVENT_PASSTHROUGH;
 	}
 
@@ -884,6 +915,13 @@ static bool handle_pointer_button(wlc_handle view, uint32_t time, const struct w
 		return EVENT_HANDLED;
 	}
 
+	if (focused->type == C_VIEW) {
+		pid_t pid = wlc_view_get_pid(focused->handle);
+		if (!(get_feature_policy(pid) & FEATURE_MOUSE)) {
+			return EVENT_HANDLED;
+		}
+	}
+
 	// Always send mouse release
 	if (state == WLC_BUTTON_STATE_RELEASED) {
 		return EVENT_PASSTHROUGH;
@@ -900,18 +938,18 @@ bool handle_pointer_scroll(wlc_handle view, uint32_t time, const struct wlc_modi
 		int y_amount = (int)_amount[1];
 
 		if (x_amount > 0 && strcmp(config->floating_scroll_up_cmd, "")) {
-			handle_command(config->floating_scroll_up_cmd);
+			handle_command(config->floating_scroll_up_cmd, CONTEXT_BINDING);
 			return EVENT_HANDLED;
 		} else if (x_amount < 0 && strcmp(config->floating_scroll_down_cmd, "")) {
-			handle_command(config->floating_scroll_down_cmd);
+			handle_command(config->floating_scroll_down_cmd, CONTEXT_BINDING);
 			return EVENT_HANDLED;
 		}
 
 		if (y_amount > 0 && strcmp(config->floating_scroll_right_cmd, "")) {
-			handle_command(config->floating_scroll_right_cmd);
+			handle_command(config->floating_scroll_right_cmd, CONTEXT_BINDING);
 			return EVENT_HANDLED;
 		} else if (y_amount < 0 && strcmp(config->floating_scroll_left_cmd, "")) {
-			handle_command(config->floating_scroll_left_cmd);
+			handle_command(config->floating_scroll_left_cmd, CONTEXT_BINDING);
 			return EVENT_HANDLED;
 		}
 	}
@@ -924,7 +962,7 @@ static void handle_wlc_ready(void) {
 	config->active = true;
 	while (config->cmd_queue->length) {
 		char *line = config->cmd_queue->items[0];
-		struct cmd_results *res = handle_command(line);
+		struct cmd_results *res = handle_command(line, CONTEXT_CONFIG);
 		if (res->status != CMD_SUCCESS) {
 			sway_log(L_ERROR, "Error on line '%s': %s", line, res->error);
 		}

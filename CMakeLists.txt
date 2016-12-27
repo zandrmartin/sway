@@ -45,9 +45,11 @@ option(enable-swaybar "Enables the swaybar utility" YES)
 option(enable-swaygrab "Enables the swaygrab utility" YES)
 option(enable-swaymsg "Enables the swaymsg utility" YES)
 option(enable-gdk-pixbuf "Use Pixbuf to support more image formats" YES)
-option(enable-binding-event "Enables binding event subscription" YES)
 option(zsh-completions "Zsh shell completions" NO)
 option(default-wallpaper "Installs the default wallpaper" YES)
+option(LD_LIBRARY_PATH "Configures sway's default LD_LIBRARY_PATH" "/usr/lib")
+
+add_definitions(-D_LD_LIBRARY_PATH="${LD_LIBRARY_PATH}")
 
 find_package(JsonC REQUIRED)
 find_package(PCRE REQUIRED)
@@ -69,6 +71,10 @@ if(Backtrace_FOUND)
 	set(SWAY_Backtrace_HEADER "${Backtrace_HEADER}")
 endif()
 
+if (CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
+	find_package(EpollShim REQUIRED)
+endif (CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
+
 include(FeatureSummary)
 include(Manpage)
 include(GNUInstallDirs)
@@ -82,9 +88,6 @@ if (enable-gdk-pixbuf)
 	endif()
 else()
 	message(STATUS "Building without gdk-pixbuf, only png images supported.")
-endif()
-if(enable-binding-event)
-	add_definitions(-DSWAY_BINDING_EVENT=1)
 endif()
 
 include_directories(include)
@@ -126,14 +129,14 @@ if(zsh-completions)
 endif()
 install(
 	FILES ${CMAKE_CURRENT_SOURCE_DIR}/sway.desktop
-	DESTINATION share/wayland-sessions
+	DESTINATION ${CMAKE_INSTALL_FULL_DATAROOTDIR}/wayland-sessions
 	COMPONENT data
 	)
 
 if(default-wallpaper)
 	install(
         DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/assets/
-		DESTINATION share/sway
+		DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/sway
 		COMPONENT data
         FILES_MATCHING PATTERN "*Wallpaper*"
 		)

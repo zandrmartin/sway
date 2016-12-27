@@ -23,10 +23,14 @@ static swayc_t *new_swayc(enum swayc_types type) {
 	// next id starts at 1 because 0 is assigned to root_container in layout.c
 	static size_t next_id = 1;
 	swayc_t *c = calloc(1, sizeof(swayc_t));
+	if (!c) {
+		return NULL;
+	}
 	c->id = next_id++;
 	c->handle = -1;
 	c->gaps = -1;
 	c->layout = L_NONE;
+	c->workspace_layout = L_NONE;
 	c->type = type;
 	if (type != C_VIEW) {
 		c->children = create_list();
@@ -209,13 +213,14 @@ swayc_t *new_workspace(swayc_t *output, const char *name) {
 	swayc_t *workspace = new_swayc(C_WORKSPACE);
 
 	workspace->prev_layout = L_NONE;
-	workspace->layout = default_layout(output);
+	workspace->layout = L_HORIZ;
+	workspace->workspace_layout = default_layout(output);
 
 	workspace->x = output->x;
 	workspace->y = output->y;
 	workspace->width = output->width;
 	workspace->height = output->height;
-	workspace->name = strdup(name);
+	workspace->name = !name ? NULL : strdup(name);
 	workspace->visible = false;
 	workspace->floating = create_list();
 
@@ -262,7 +267,7 @@ swayc_t *new_container(swayc_t *child, enum swayc_layouts layout) {
 		// add container to workspace chidren
 		add_child(workspace, cont);
 		// give them proper layouts
-		cont->layout = workspace->layout;
+		cont->layout = workspace->workspace_layout;
 		cont->prev_layout = workspace->prev_layout;
 		/* TODO: might break shit in move_container!!! workspace->layout = layout; */
 		set_focused_container_for(workspace, get_focused_view(workspace));
@@ -335,9 +340,18 @@ swayc_t *new_floating_view(wlc_handle handle) {
 	struct wlc_geometry geometry;
 	wlc_view_get_visible_geometry(handle, &geometry);
 
-	// give it requested geometry, but place in center
-	view->x = (swayc_active_workspace()->width - geometry.size.w) / 2;
-	view->y = (swayc_active_workspace()->height- geometry.size.h) / 2;
+	// give it requested geometry, but place in center if possible
+	// in top left otherwise
+	if (geometry.size.w != 0) {
+		view->x = (swayc_active_workspace()->width - geometry.size.w) / 2;
+	} else {
+		view->x = 0;
+	}
+	if (geometry.size.h != 0) {
+		view->y = (swayc_active_workspace()->height - geometry.size.h) / 2;
+	} else {
+		view->y = 0;
+	}
 	view->width = geometry.size.w;
 	view->height = geometry.size.h;
 
@@ -943,4 +957,16 @@ swayc_t *swayc_tabbed_stacked_parent(swayc_t *con) {
 		return con->parent;
 	}
 	return NULL;
+}
+
+swayc_t *swayc_change_layout(swayc_t *container, enum swayc_layouts layout) {
+	if (container->type == C_WORKSPACE) {
+		container->workspace_layout = layout;
+    if (layout == L_HORIZ || layout == L_VERT) {
+      container->layout = layout;
+    }
+	} else {
+		container->layout = layout;
+	}
+	return container;
 }

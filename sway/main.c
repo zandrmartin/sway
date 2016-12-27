@@ -4,13 +4,16 @@
 #include <wlc/wlc.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <signal.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <sys/capability.h>
 #include "sway/extensions.h"
 #include "sway/layout.h"
 #include "sway/config.h"
+#include "sway/security.h"
 #include "sway/handlers.h"
 #include "sway/input.h"
 #include "sway/ipc-server.h"
@@ -50,7 +53,10 @@ void detect_proprietary() {
 		return;
 	}
 	while (!feof(f)) {
-		char *line = read_line(f);
+		char *line;
+		if (!(line = read_line(f))) {
+			break;
+		}
 		if (strstr(line, "nvidia")) {
 			fprintf(stderr, "\x1B[1;31mWarning: Proprietary nvidia drivers do NOT support Wayland. Use nouveau.\x1B[0m\n");
 			fprintf(stderr, "\x1B[1;31mYes, they STILL don't work with the newly announced wayland \"support\".\x1B[0m\n");
@@ -115,7 +121,10 @@ static void log_distro() {
 		if (f) {
 			sway_log(L_INFO, "Contents of %s:", paths[i]);
 			while (!feof(f)) {
-				char *line = read_line(f);
+				char *line;
+				if (!(line = read_line(f))) {
+					break;
+				}
 				if (*line) {
 					sway_log(L_INFO, "%s", line);
 				}
@@ -133,13 +142,43 @@ static void log_kernel() {
 		return;
 	}
 	while (!feof(f)) {
-		char *line = read_line(f);
+		char *line;
+		if (!(line = read_line(f))) {
+			break;
+		}
 		if (*line) {
 			sway_log(L_INFO, "%s", line);
 		}
 		free(line);
 	}
 	fclose(f);
+}
+
+static void security_sanity_check() {
+	// TODO: Notify users visually if this has issues
+	struct stat s;
+	if (stat("/proc", &s)) {
+		sway_log(L_ERROR,
+			"!! DANGER !! /proc is not available - sway CANNOT enforce security rules!");
+	}
+#ifdef __linux__
+	cap_flag_value_t v;
+	cap_t cap = cap_get_proc();
+	if (!cap || cap_get_flag(cap, CAP_SYS_PTRACE, CAP_PERMITTED, &v) != 0 || v != CAP_SET) {
+		sway_log(L_ERROR,
+			"!! DANGER !! Sway does not have CAP_SYS_PTRACE and cannot enforce security rules for processes running as other users.");
+	}
+	if (cap) {
+		cap_free(cap);
+	}
+#endif
+	if (!stat(SYSCONFDIR "/sway", &s)) {
+		if (s.st_uid != 0 || s.st_gid != 0
+				|| (s.st_mode & S_IWGRP) || (s.st_mode & S_IWOTH)) {
+			sway_log(L_ERROR,
+				"!! DANGER !! " SYSCONFDIR "/sway is not secure! It should be owned by root and set to 0755 at the minimum");
+		}
+	}
 }
 
 int main(int argc, char **argv) {
@@ -169,6 +208,10 @@ int main(int argc, char **argv) {
 		"  -V, --verbose          Enables more verbose logging.\n"
 		"      --get-socketpath   Gets the IPC socket path and prints it, then exits.\n"
 		"\n";
+
+	// Security:
+	unsetenv("LD_PRELOAD");
+	setenv("LD_LIBRARY_PATH", _LD_LIBRARY_PATH, 1);
 
 	int c;
 	while (1) {
@@ -297,6 +340,8 @@ int main(int argc, char **argv) {
 	if (config_path) {
 		free(config_path);
 	}
+
+	security_sanity_check();
 
 	if (!terminate_request) {
 		wlc_run();
